@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>2024未來戰士2場地設備需求查詢</title>
+    <style>
+        :root {
+            --primary-color: #2c3e50;
+            --secondary-color: #18bc9c;
+            --bg-color: #f8f9fa;
+            --text-color: #333;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            padding: 20px;
+        }
+
+        .container { max-width: 1200px; margin: 0 auto; }
+        h1 { color: var(--primary-color); text-align: center; margin-bottom: 30px; }
+
+        /* 搜尋與狀態提示 */
+        .search-container {
+            background: white; padding: 20px; border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05); margin-bottom: 20px;
+        }
+        .search-box {
+            width: 100%; padding: 10px 15px; border: 1px solid #ddd;
+            border-radius: 4px; font-size: 16px; box-sizing: border-box;
+        }
+        .loading-status {
+            text-align: center; color: #7f8c8d; font-size: 16px; margin: 20px 0;
+        }
+
+        /* 表格樣式 */
+        .table-responsive {
+            background: white; border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05); overflow-x: auto;
+        }
+        table { width: 100%; border-collapse: collapse; text-align: left; }
+        th, td { padding: 15px; border-bottom: 1px solid #eee; }
+        th { background-color: var(--primary-color); color: white; white-space: nowrap; }
+        tr:hover { background-color: #f9f9f9; }
+
+        /* 標籤與按鈕 */
+        .badge { display: inline-block; padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; }
+        .badge-am { background-color: #ffeaa7; color: #d63031; }
+        .badge-pm { background-color: #fab1a0; color: #e17055; }
+        .btn-detail {
+            background-color: var(--secondary-color); color: white; border: none;
+            padding: 6px 12px; border-radius: 4px; cursor: pointer; transition: background 0.2s;
+        }
+        .btn-detail:hover { background-color: #128f76; }
+
+        /* 彈出視窗 */
+        .modal {
+            display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background-color: rgba(0,0,0,0.5); z-index: 1000; justify-content: center; align-items: center;
+        }
+        .modal-content {
+            background: white; padding: 25px; border-radius: 8px;
+            max-width: 500px; width: 90%; position: relative;
+        }
+        .close-btn { position: absolute; top: 15px; right: 20px; font-size: 24px; cursor: pointer; color: #aaa; }
+        .close-btn:hover { color: #333; }
+        .modal-list { padding-left: 20px; line-height: 1.6; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>未來戰士2 場地與資材快速查詢系統</h1>
+
+    <div class="search-container">
+        <input type="text" id="searchInput" class="search-box" placeholder="輸入關鍵字搜尋（例如：日期、時段、場地、負責人、課程名稱）" disabled>
+    </div>
+
+    <div id="loadingStatus" class="loading-status">正在從 Google 雲端試算表下載最新行程資料...</div>
+
+    <div class="table-responsive">
+        <table>
+            <thead>
+                <tr>
+                    <th>日期</th>
+                    <th>時段</th>
+                    <th>課程名稱</th>
+                    <th>場地名稱</th>
+                    <th>學生人數</th>
+                    <th>桌子張數</th>
+                    <th>負責人</th>
+                    <th>資材與設備</th>
+                </tr>
+            </thead>
+            <tbody id="tableBody"></tbody>
+        </table>
+    </div>
+</div>
+
+<div id="detailModal" class="modal">
+    <div class="modal-content">
+        <span class="close-btn" onclick="closeModal()">&times;</span>
+        <h3 id="modalTitle">師資設備清單</h3>
+        <ul id="modalList" class="modal-list"></ul>
+    </div>
+</div>
+
+<script>
+    // 已自動為您填入您的專屬 Google 試算表 ID
+    const SPREADSHEET_ID = '1xOrAeWq5BChanvVYExMJojHGnDV7NVIOCJn2Rpfd040';
+    const SPREADSHEET_URL = `https://google.com{SPREADSHEET_ID}/gviz/tq?tqx=out:json`;
+
+    let globalCourseData = [];
+
+    // 初始化：從雲端抓取資料
+    async function fetchSpreadsheetData() {
+        try {
+            const response = await fetch(SPREADSHEET_URL);
+            const text = await response.text();
+            
+            const jsonString = text.substring(text.indexOf("{"), text.lastIndexOf("}") + 1);
+            const jsonData = JSON.parse(jsonString);
+            
+            const rows = jsonData.table.rows;
+            
+            globalCourseData = rows.map(row => {
+                const cells = row.c;
+                return {
+                    date: cells[0] ? cells[0].f || cells[0].v : "",
+                    period: cells[1] ? cells[1].v : "",
+                    course: cells[2] ? cells[2].v : "",
+                    venue: cells[3] ? cells[3].v : "",
+                    students: cells[4] ? cells[4].v : 0,
+                    tables: cells[5] ? cells[5].v : 0,
+                    manager: cells[6] ? cells[6].v : "",
+                    equipment: cells[7] && cells[7].v ? cells[7].v.split('、') : []
+                };
+            });
+
+            // 升級版排序：日期 -> 時段 (AM 在前) -> 場地名稱
+            globalCourseData.sort((a, b) => {
+                if (a.date !== b.date) {
+                    return new Date(a.date) - new Date(b.date);
+                }
+                if (a.period !== b.period) {
+                    return a.period === "AM" ? -1 : 1;
+                }
+                return a.venue.localeCompare(b.venue, 'zh-Hant');
+            });
+
+            document.getElementById("loadingStatus").style.display = "none";
+            document.getElementById("searchInput").disabled = false;
+            
+            renderTable(globalCourseData);
+
+        } catch (error) {
+            console.error("資料載入失敗：", error);
+            document.getElementById("loadingStatus").innerText = "❌ 無法讀取雲端資料，請確認您的試算表「共用」設定已開啟為「知道連結的任何人皆可檢視」。";
+            document.getElementById("loadingStatus").style.color = "#d63031";
+        }
+    }
+
+    // 渲染表格
+    function renderTable(data) {
+        const tableBody = document.getElementById("tableBody");
+        tableBody.innerHTML = "";
+        
+        if(data.length === 0) {
+            tableBody.innerHTML = `<tr><td colspan="8" style="text-align:center; color:#999;">查無相符的行程資料</td></tr>`;
+            return;
+        }
+
+        data.forEach((item, index) => {
+            const row = document.createElement("tr");
+            row.innerHTML = `
+                <td><b>${item.date}</b></td>
+                <td><span class="badge ${item.period === 'AM' ? 'badge-am' : 'badge-pm'}">${item.period}</span></td>
+                <td>${item.course}</td>
+                <td>${item.venue}</td>
+                <td>${item.students} 人</td>
+                <td>${item.tables} 張</td>
+                <td>${item.manager}</td>
+                <td><button class="btn-detail" onclick="showDetails(${index})">查看清單</button></td>
+            `;
+            tableBody.appendChild(row);
+        });
+    }
+
+    // 即時搜尋
+    document.getElementById("searchInput").addEventListener("input", function(e) {
+        const keyword = e.target.value.toLowerCase();
+        const filteredData = globalCourseData.filter(item => 
+            item.date.toString().includes(keyword) ||
+            item.period.toLowerCase().includes(keyword) ||
+            item.course.toLowerCase().includes(keyword) ||
+            item.venue.toLowerCase().includes(keyword) ||
+            item.manager.toLowerCase().includes(keyword)
+        );
+        renderTable(filteredData);
+    });
+
+    // 彈出視窗
+    const modal = document.getElementById("detailModal");
+    const modalTitle = document.getElementById("modalTitle");
+    const modalList = document.getElementById("modalList");
+
+    function showDetails(index) {
+        const item = globalCourseData[index];
+        modalTitle.innerText = `${item.course} - 師資設備清單`;
+        modalList.innerHTML = "";
+        
+        if (item.equipment.length === 0 || item.equipment[0] === "無") {
+            modalList.innerHTML = "<li>無特殊設備資材需求</li>";
+        } else {
+            item.equipment.forEach(eq => {
+                const li = document.createElement("li");
+                li.innerText = eq.trim();
+                modalList.appendChild(li);
+            });
+        }
+        modal.style.display = "flex";
+    }
+
+    function closeModal() { modal.style.display = "none"; }
+    window.onclick = function(event) { if (event.target == modal) { closeModal(); } }
+
+    fetchSpreadsheetData();
+</script>
+
+</body>
+</html>
