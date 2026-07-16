@@ -9,10 +9,10 @@
         body { font-family: -apple-system, sans-serif; background-color: var(--bg-color); color: var(--text-color); margin: 0; padding: 20px; }
         .container { max-width: 1200px; margin: 0 auto; }
         h1 { color: var(--primary-color); text-align: center; font-size: 24px; margin-bottom: 20px; }
-        .upload-container { background: #eef2f3; padding: 20px; border: 2px dashed #b2bec3; border-radius: 8px; text-align: center; margin-bottom: 20px; }
-        .search-container { background: white; padding: 15px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); margin-bottom: 20px; display: none; }
+        .search-container { background: white; padding: 15px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); margin-bottom: 20px; }
         .search-box { width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 16px; box-sizing: border-box; }
-        .table-responsive { background: white; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); overflow-x: auto; display: none; }
+        .loading-status { text-align: center; color: #7f8c8d; font-size: 16px; margin: 20px 0; }
+        .table-responsive { background: white; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); overflow-x: auto; }
         table { width: 100%; border-collapse: collapse; text-align: left; font-size: 15px; }
         th, td { padding: 12px 15px; border-bottom: 1px solid #eee; }
         th { background-color: var(--primary-color); color: white; white-space: nowrap; }
@@ -25,8 +25,6 @@
         .modal-content { background: white; padding: 25px; border-radius: 8px; max-width: 450px; width: 90%; position: relative; }
         .close-btn { position: absolute; top: 10px; right: 15px; font-size: 24px; cursor: pointer; color: #aaa; }
         .modal-list { padding-left: 20px; line-height: 1.6; }
-        .file-btn { background-color: #2c3e50; color: white; padding: 10px 20px; border-radius: 4px; cursor: pointer; display: inline-block; font-weight: bold; margin-top: 10px; }
-        #fileInput { display: none; }
     </style>
 </head>
 <body>
@@ -34,23 +32,13 @@
 <div class="container">
     <h1>未來戰士2 場地與資材快速查詢系統</h1>
     
-    <!-- 終極解法：上傳下載好的 CSV 檔案 -->
-    <div class="upload-container" id="uploadArea">
-        <h3>📢 由於 Google 雲端帳號權限封鎖限制</h3>
-        <p>請先開啟您的試算表，點選 <b>「檔案」 ➔ 「下載」 ➔ 「逗號分隔值 (.csv)」</b> 將檔案存到電腦中。</p>
-        <label class="file-btn">
-            點此選擇下載好的 CSV 檔案
-            <input type="file" id="fileInput" accept=".csv">
-        </label>
+    <div class="search-container">
+        <input type="text" id="searchInput" class="search-box" placeholder="搜尋日期、時段、課程、場地、負責人..." disabled>
     </div>
 
-    <!-- 搜尋欄 (預設隱藏，導入檔案後開啟) -->
-    <div class="search-container" id="searchArea">
-        <input type="text" id="searchInput" class="search-box" placeholder="搜尋日期、時段、課程、場地、負責人...">
-    </div>
+    <div id="loadingStatus" class="loading-status">正在即時連線抓取最新的雲端資材資料...</div>
 
-    <!-- 表格區 (預設隱藏) -->
-    <div class="table-responsive" id="tableArea">
+    <div class="table-responsive" id="tableArea" style="display: none;">
         <table>
             <thead>
                 <tr>
@@ -78,49 +66,48 @@
 </div>
 
 <script>
+    // 已直接為您植入正確的 Google 試算表發布連結，不需再手動填寫行數
+    const CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTkvgrGgc1nK-UVZnhTxRD8Vx53yIs3pVxT4m1YDl5KqgAd0pizHXxYj5pLTsYVxu5oweb0bSxqx5AO/pub?output=csv";
+
     let globalCourseData = [];
 
-    // 監聽檔案上傳
-    document.getElementById('fileInput').addEventListener('change', function(e) {
-        const file = e.target.files[0];
-        if (!file) return;
-
-        const reader = new FileReader();
-        reader.onload = function(evt) {
-            const csvText = evt.target.result;
+    async function loadCloudData() {
+        try {
+            const response = await fetch(CSV_URL);
+            const csvText = await response.text();
             parseAndInitData(csvText);
-        };
-        reader.readAsText(file, 'UTF-8');
-    });
+        } catch (error) {
+            console.error(error);
+            document.getElementById("loadingStatus").innerText = "❌ 雲端連線失敗，請確認試算表仍處於發布狀態。";
+            document.getElementById("loadingStatus").style.color = "#d63031";
+        }
+    }
 
-    // 100% 精準本地 CSV 解析器（完美處理雙引號與頓號）
+    // 100% 精準本地 CSV 解析器（完美相容多欄位雙引號與中文頓號）
     function parseAndInitData(text) {
-        let lines = [];
-        let row = [""];
-        let inQuotes = false;
-
+        let lines = []; let row = [""]; let inQuotes = false;
         for (let i = 0; i < text.length; i++) {
-            let c = text[i];
-            let next = text[i+1];
+            let c = text[i]; let next = text[i+1];
             if (c === '"') {
                 if (inQuotes && next === '"') { row[row.length - 1] += '"'; i++; }
                 else { inQuotes = !inQuotes; }
-            } else if (c === ',' && !inQuotes) {
-                row.push('');
-            } else if ((c === '\r' || c === '\n') && !inQuotes) {
+            } else if (c === ',' && !inQuotes) { row.push(''); }
+            else if ((c === '\r' || c === '\n') && !inQuotes) {
                 if (c === '\r' && next === '\n') { i++; }
-                lines.push(row);
-                row = [''];
-            } else {
-                row[row.length - 1] += c;
-            }
+                lines.push(row); row = [''];
+            } else { row[row.length - 1] += c; }
         }
         if (row.length > 1 || row !== '') lines.push(row);
 
-        // 將 CSV 轉換成網頁對齊物件，跳過第一行標題列
+        // 過濾無效資料並建立結構
         globalCourseData = lines.slice(1).filter(r => r.length >= 7 && r[0].trim() !== "").map(r => {
+            // 解析日期格式，防呆去除不必要的時分秒文字
+            let rawDate = r[0] ? r[0].trim() : "";
+            if (rawDate.includes(" ")) rawDate = rawDate.split(" ")[0];
+            if (rawDate.includes("T")) rawDate = rawDate.split("T")[0];
+
             return {
-                date: r[0] ? r[0].trim() : "",
+                date: rawDate,
                 period: r[1] ? r[1].trim() : "",
                 course: r[2] ? r[2].trim() : "",
                 venue: r[3] ? r[3].trim() : "",
@@ -132,26 +119,29 @@
             };
         });
 
-        // 多重極速排序：日期 ➔ 時段 (AM在前) ➔ 教室名稱順序
+        // 全自動多重排序：日期升冪 ➔ 時段 (AM在前) ➔ 教室名稱順序
         globalCourseData.sort((a, b) => {
             if (a.date !== b.date) return a.date.localeCompare(b.date);
             if (a.period !== b.period) return a.period === "AM" ? -1 : 1;
             return a.venue.localeCompare(b.venue, 'zh-Hant');
         });
 
-        // 隱藏上傳區，秀出功能網頁
-        document.getElementById('uploadArea').style.display = 'none';
-        document.getElementById('searchArea').style.display = 'block';
+        document.getElementById('loadingStatus').style.display = 'none';
+        document.getElementById('searchInput').disabled = false;
         document.getElementById('tableArea').style.display = 'block';
 
         renderTable(globalCourseData);
     }
 
-    // 渲染主表格
     function renderTable(data) {
         const tbody = document.getElementById("tableBody");
         tbody.innerHTML = "";
         
+        if (data.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; color:#999;">目前沒有相符的行程資料</td></tr>`;
+            return;
+        }
+
         data.forEach((item, index) => {
             const row = document.createElement("tr");
             row.innerHTML = `
@@ -168,7 +158,6 @@
         });
     }
 
-    // 即時關鍵字搜尋功能
     document.getElementById("searchInput").addEventListener("input", function(e) {
         const kw = e.target.value.toLowerCase();
         const filtered = globalCourseData.filter(item => 
@@ -179,14 +168,12 @@
         renderTable(filtered);
     });
 
-    // 彈出視窗處理
     const modal = document.getElementById("detailModal");
     function showDetails(index) {
         const item = globalCourseData[index];
         document.getElementById("modalTitle").innerText = item.course + " - 設備資材清單";
         const list = document.getElementById("modalList");
         list.innerHTML = "";
-        
         if (item.equipment === "無" || item.equipment.trim() === "") {
             list.innerHTML = "<li>無特殊設備資材需求</li>";
         } else {
@@ -202,6 +189,8 @@
     }
     function closeModal() { modal.style.display = "none"; }
     window.onclick = function(e) { if (e.target == modal) closeModal(); }
+
+    loadCloudData();
 </script>
 </body>
 </html>
