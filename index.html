@@ -109,9 +109,10 @@
 </div>
 
 <script>
-    // 已自動為您填入您的專屬 Google 試算表 ID
+    // 您的專屬 Google 試算表 ID
     const SPREADSHEET_ID = '1xOrAeWq5BChanvVYExMJojHGnDV7NVIOCJn2Rpfd040';
-    const SPREADSHEET_URL = `https://google.com{SPREADSHEET_ID}/gviz/tq?tqx=out:json`;
+    // 升級：改用對組織/公司權限限制適應力最強的 CSV 匯出端點
+    const SPREADSHEET_URL = `https://google.com{SPREADSHEET_ID}/export?format=csv`;
 
     let globalCourseData = [];
 
@@ -119,24 +120,22 @@
     async function fetchSpreadsheetData() {
         try {
             const response = await fetch(SPREADSHEET_URL);
-            const text = await response.text();
+            const csvText = await response.text();
             
-            const jsonString = text.substring(text.indexOf("{"), text.lastIndexOf("}") + 1);
-            const jsonData = JSON.parse(jsonString);
+            // CSV 簡易解析器
+            const rows = parseCSV(csvText);
             
-            const rows = jsonData.table.rows;
-            
-            globalCourseData = rows.map(row => {
-                const cells = row.c;
+            // 跳過第一行標題，轉換資料
+            globalCourseData = rows.slice(1).filter(row => row.length >= 4 && row[0].trim() !== "").map(row => {
                 return {
-                    date: cells[0] ? cells[0].f || cells[0].v : "",
-                    period: cells[1] ? cells[1].v : "",
-                    course: cells[2] ? cells[2].v : "",
-                    venue: cells[3] ? cells[3].v : "",
-                    students: cells[4] ? cells[4].v : 0,
-                    tables: cells[5] ? cells[5].v : 0,
-                    manager: cells[6] ? cells[6].v : "",
-                    equipment: cells[7] && cells[7].v ? cells[7].v.split('、') : []
+                    date: row[0] ? row[0].trim() : "",
+                    period: row[1] ? row[1].trim() : "",
+                    course: row[2] ? row[2].trim() : "",
+                    venue: row[3] ? row[3].trim() : "",
+                    students: row[4] ? row[4].trim() : "0",
+                    tables: row[5] ? row[5].trim() : "0",
+                    manager: row[6] ? row[6].trim() : "",
+                    equipment: row[7] ? row[7].split('、') : []
                 };
             });
 
@@ -161,6 +160,33 @@
             document.getElementById("loadingStatus").innerText = "❌ 無法讀取雲端資料，請確認您的試算表「共用」設定已開啟為「知道連結的任何人皆可檢視」。";
             document.getElementById("loadingStatus").style.color = "#d63031";
         }
+    }
+
+    // 正確處理 CSV 雙引號與頓號的解析函式
+    function parseCSV(text) {
+        let lines = [];
+        let row = [""];
+        let inQuotes = false;
+
+        for (let i = 0; i < text.length; i++) {
+            let c = text[i];
+            let next = text[i+1];
+
+            if (c === '"') {
+                if (inQuotes && next === '"') { row[row.length - 1] += '"'; i++; }
+                else { inQuotes = !inQuotes; }
+            } else if (c === ',' && !inQuotes) {
+                row.push('');
+            } else if ((c === '\r' || c === '\n') && !inQuotes) {
+                if (c === '\r' && next === '\n') { i++; }
+                lines.push(row);
+                row = [''];
+            } else {
+                row[row.length - 1] += c;
+            }
+        }
+        if (row.length > 1 || row[0] !== '') lines.push(row);
+        return lines;
     }
 
     // 渲染表格
@@ -212,13 +238,15 @@
         modalTitle.innerText = `${item.course} - 師資設備清單`;
         modalList.innerHTML = "";
         
-        if (item.equipment.length === 0 || item.equipment[0] === "無") {
+        if (item.equipment.length === 0 || item.equipment[0] === "無" || item.equipment[0] === "") {
             modalList.innerHTML = "<li>無特殊設備資材需求</li>";
         } else {
             item.equipment.forEach(eq => {
-                const li = document.createElement("li");
-                li.innerText = eq.trim();
-                modalList.appendChild(li);
+                if(eq.trim() !== "") {
+                    const li = document.createElement("li");
+                    li.innerText = eq.trim();
+                    modalList.appendChild(li);
+                }
             });
         }
         modal.style.display = "flex";
