@@ -23,7 +23,7 @@
         .container { max-width: 1200px; margin: 0 auto; }
         h1 { color: var(--primary-color); text-align: center; margin-bottom: 30px; }
 
-        /* 搜尋與狀態提示 */
+        /* 搜尋欄 */
         .search-container {
             background: white; padding: 20px; border-radius: 8px;
             box-shadow: 0 4px 6px rgba(0,0,0,0.05); margin-bottom: 20px;
@@ -31,9 +31,6 @@
         .search-box {
             width: 100%; padding: 10px 15px; border: 1px solid #ddd;
             border-radius: 4px; font-size: 16px; box-sizing: border-box;
-        }
-        .loading-status {
-            text-align: center; color: #7f8c8d; font-size: 16px; margin: 20px 0;
         }
 
         /* 表格樣式 */
@@ -76,10 +73,8 @@
     <h1>未來戰士2 場地與資材快速查詢系統</h1>
 
     <div class="search-container">
-        <input type="text" id="searchInput" class="search-box" placeholder="輸入關鍵字搜尋（例如：日期、時段、場地、負責人、課程名稱）" disabled>
+        <input type="text" id="searchInput" class="search-box" placeholder="輸入關鍵字搜尋（例如：日期、時段、場地、負責人、課程名稱）">
     </div>
-
-    <div id="loadingStatus" class="loading-status">正在從 Google 雲端試算表下載最新行程資料...</div>
 
     <div class="table-responsive">
         <table>
@@ -109,84 +104,40 @@
 </div>
 
 <script>
-    // 您的專屬 Google 試算表 ID
-    const SPREADSHEET_ID = '1xOrAeWq5BChanvVYExMJojHGnDV7NVIOCJn2Rpfd040';
-    // 升級：改用對組織/公司權限限制適應力最強的 CSV 匯出端點
-    const SPREADSHEET_URL = `https://google.com{SPREADSHEET_ID}/export?format=csv`;
+    // 💡 請在此處直接修改、填入您的課程場地資料！
+    // 格式範例：date(日期), period(時段), course(課程名), venue(教室), students(學生數), tables(桌數), manager(負責人), equipment(資材，用顿号隔开)
+    const staticCourseData = [
+        { date: "2026-08-10", period: "AM", course: "AI 行銷實戰班", venue: "4F副堂", students: 35, tables: 18, manager: "天佑", equipment: "講師筆電x1、無線麥克風x2、白板筆" },
+        { date: "2026-08-10", period: "AM", course: "兒童程式啟蒙班", venue: "2F小教室", students: 15, tables: 15, manager: "林專員", equipment: "廣播系統、簽到簿" },
+        { date: "2026-08-10", period: "PM", course: "Python 數據分析", venue: "3F電腦教室", students: 25, tables: 13, manager: "天佑", equipment: "桌子X1、椅子X1、耳麥" },
+        { date: "2026-08-11", period: "AM", course: "不凋花藝美學", venue: "4F副堂", students: 15, tables: 8, manager: "陳主任", equipment: "花藝剪刀x15、防水桌布x8" }
+        // 👈 您可以直接複製上面的格式，在下方無限新增橫列...
+    ];
 
     let globalCourseData = [];
 
-    // 初始化：從雲端抓取資料
-    async function fetchSpreadsheetData() {
-        try {
-            const response = await fetch(SPREADSHEET_URL);
-            const csvText = await response.text();
-            
-            // CSV 簡易解析器
-            const rows = parseCSV(csvText);
-            
-            // 跳過第一行標題，轉換資料
-            globalCourseData = rows.slice(1).filter(row => row.length >= 4 && row[0].trim() !== "").map(row => {
-                return {
-                    date: row[0] ? row[0].trim() : "",
-                    period: row[1] ? row[1].trim() : "",
-                    course: row[2] ? row[2].trim() : "",
-                    venue: row[3] ? row[3].trim() : "",
-                    students: row[4] ? row[4].trim() : "0",
-                    tables: row[5] ? row[5].trim() : "0",
-                    manager: row[6] ? row[6].trim() : "",
-                    equipment: row[7] ? row[7].split('、') : []
-                };
-            });
+    // 初始化與排序資料
+    function initData() {
+        // 將文字的頓號切割成清單陣列
+        globalCourseData = staticCourseData.map(item => {
+            return {
+                ...item,
+                equipmentList: item.equipment ? item.equipment.split('、') : []
+            };
+        });
 
-            // 升級版排序：日期 -> 時段 (AM 在前) -> 場地名稱
-            globalCourseData.sort((a, b) => {
-                if (a.date !== b.date) {
-                    return new Date(a.date) - new Date(b.date);
-                }
-                if (a.period !== b.period) {
-                    return a.period === "AM" ? -1 : 1;
-                }
-                return a.venue.localeCompare(b.venue, 'zh-Hant');
-            });
-
-            document.getElementById("loadingStatus").style.display = "none";
-            document.getElementById("searchInput").disabled = false;
-            
-            renderTable(globalCourseData);
-
-        } catch (error) {
-            console.error("資料載入失敗：", error);
-            document.getElementById("loadingStatus").innerText = "❌ 無法讀取雲端資料，請確認您的試算表「共用」設定已開啟為「知道連結的任何人皆可檢視」。";
-            document.getElementById("loadingStatus").style.color = "#d63031";
-        }
-    }
-
-    // 正確處理 CSV 雙引號與頓號的解析函式
-    function parseCSV(text) {
-        let lines = [];
-        let row = [""];
-        let inQuotes = false;
-
-        for (let i = 0; i < text.length; i++) {
-            let c = text[i];
-            let next = text[i+1];
-
-            if (c === '"') {
-                if (inQuotes && next === '"') { row[row.length - 1] += '"'; i++; }
-                else { inQuotes = !inQuotes; }
-            } else if (c === ',' && !inQuotes) {
-                row.push('');
-            } else if ((c === '\r' || c === '\n') && !inQuotes) {
-                if (c === '\r' && next === '\n') { i++; }
-                lines.push(row);
-                row = [''];
-            } else {
-                row[row.length - 1] += c;
+        // 升級版自動多重排序：日期 -> 時段 (AM 在前) -> 場地名稱
+        globalCourseData.sort((a, b) => {
+            if (a.date !== b.date) {
+                return new Date(a.date) - new Date(b.date);
             }
-        }
-        if (row.length > 1 || row[0] !== '') lines.push(row);
-        return lines;
+            if (a.period !== b.period) {
+                return a.period === "AM" ? -1 : 1;
+            }
+            return a.venue.localeCompare(b.venue, 'zh-Hant');
+        });
+
+        renderTable(globalCourseData);
     }
 
     // 渲染表格
@@ -228,7 +179,7 @@
         renderTable(filteredData);
     });
 
-    // 彈出視窗
+    // 彈出視窗邏輯
     const modal = document.getElementById("detailModal");
     const modalTitle = document.getElementById("modalTitle");
     const modalList = document.getElementById("modalList");
@@ -238,10 +189,10 @@
         modalTitle.innerText = `${item.course} - 師資設備清單`;
         modalList.innerHTML = "";
         
-        if (item.equipment.length === 0 || item.equipment[0] === "無" || item.equipment[0] === "") {
+        if (item.equipmentList.length === 0 || item.equipment === "無" || item.equipment === "") {
             modalList.innerHTML = "<li>無特殊設備資材需求</li>";
         } else {
-            item.equipment.forEach(eq => {
+            item.equipmentList.forEach(eq => {
                 if(eq.trim() !== "") {
                     const li = document.createElement("li");
                     li.innerText = eq.trim();
@@ -255,7 +206,8 @@
     function closeModal() { modal.style.display = "none"; }
     window.onclick = function(event) { if (event.target == modal) { closeModal(); } }
 
-    fetchSpreadsheetData();
+    // 啟動執行
+    initData();
 </script>
 
 </body>
